@@ -19,6 +19,8 @@ import java.util.concurrent.TimeUnit;
 import javax.management.Attribute;
 import javax.management.AttributeList;
 import javax.management.MBeanAttributeInfo;
+import javax.management.MBeanOperationInfo;
+import javax.management.MBeanParameterInfo;
 import javax.management.MBeanInfo;
 import javax.management.MBeanServer;
 import javax.management.MBeanServerConnection;
@@ -49,6 +51,7 @@ import com.googlecode.jmxtrans.OutputWriter;
 import com.googlecode.jmxtrans.jmx.ManagedObject;
 import com.googlecode.jmxtrans.model.JmxProcess;
 import com.googlecode.jmxtrans.model.Query;
+import com.googlecode.jmxtrans.model.Operation;
 import com.googlecode.jmxtrans.model.Result;
 import com.googlecode.jmxtrans.model.Server;
 
@@ -182,34 +185,64 @@ public class JmxUtils {
 			ObjectInstance oi = mbeanServer.getObjectInstance(queryName);
 
 			List<String> queryAttributes = query.getAttr();
-			if ((queryAttributes == null) || (queryAttributes.size() == 0)) {
+			if ((queryAttributes != null) && (queryAttributes.size() == 0)) {
 				MBeanAttributeInfo[] attrs = info.getAttributes();
 				for (MBeanAttributeInfo attrInfo : attrs) {
 					query.addAttr(attrInfo.getName());
 				}
 			}
 
-			try {
-				if ((query.getAttr() != null) && (query.getAttr().size() > 0)) {
-					if (log.isDebugEnabled()) {
-						log.debug("Executing queryName: " + queryName.getCanonicalName() + " from query: " + query);
-					}
+            try {
+                if ((query.getAttr() != null) && (query.getAttr().size() > 0)) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Executing queryName: " + queryName.getCanonicalName() + " from query: " + query);
+                    }
 
-					AttributeList al = mbeanServer.getAttributes(queryName, query.getAttr().toArray(new String[query.getAttr().size()]));
-					for (Attribute attribute : al.asList()) {
-						getResult(resList, info, oi, attribute, query);
-					}
+                    AttributeList al = mbeanServer.getAttributes(queryName, query.getAttr().toArray(new String[query.getAttr().size()]));
+                    for (Attribute attribute : al.asList()) {
+                        getResult(resList, info, oi, attribute, query);
+                    }
 
-					query.setResults(resList);
+                }
 
-					// Now run the OutputWriters.
-					runOutputWritersForQuery(query);
+                if ((query.getOper() != null) && (query.getOper().size() > 0)) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Executing Operation queryName: " + queryName.getCanonicalName() + " from query: " + query);
+                    }
 
-					if (log.isDebugEnabled()) {
-						log.debug("Finished running outputWriters for query: " + query);
-					}
-				}
-			} catch (UnmarshalException ue) {
+                    for (Operation operation : query.getOper()) {
+                        MBeanOperationInfo[] opers = info.getOperations();
+                        MBeanParameterInfo[] signature;
+                        List<Object> paramTypes = new ArrayList<Object>();
+// TODO: we SHOULD be creating a MAP<String,List<String>> ONCE instead of doing this for every operation...
+                        for (MBeanOperationInfo opersInfo : opers) {
+                            if (!opersInfo.getName().equals(operation.getMethod())) {
+                                continue;
+                            }
+                            signature = opersInfo.getSignature();
+                            for (MBeanParameterInfo i:signature) {
+                                paramTypes.add(i.getType());
+                            }
+                            String[] arr = new String[paramTypes.size()];
+                            paramTypes.toArray(arr);
+                            Object ol = mbeanServer.invoke(queryName, operation.getMethod(), operation.getParameters().toArray(), arr);
+                            Result r = getNewResultObject(info, oi, operation.getMethod(), query);
+                            r.addValue(operation.getMethod(), ol);
+                            resList.add(r);
+                        }
+                    }
+                }
+
+                query.setResults(resList);
+
+
+// Now run the OutputWriters.
+                runOutputWritersForQuery(query);
+
+                if (log.isDebugEnabled()) {
+                    log.debug("Finished running outputWriters for query: " + query);
+                }
+            } catch (UnmarshalException ue) {
 				if ((ue.getCause() != null) && (ue.getCause() instanceof ClassNotFoundException)) {
 					log.debug("Bad unmarshall, continuing. This is probably ok and due to something like this: "
 							+ "http://ehcache.org/xref/net/sf/ehcache/distribution/RMICacheManagerPeerListener.html#52", ue.getMessage());
