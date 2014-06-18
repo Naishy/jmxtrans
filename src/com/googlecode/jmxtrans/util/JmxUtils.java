@@ -185,7 +185,7 @@ public class JmxUtils {
 			ObjectInstance oi = mbeanServer.getObjectInstance(queryName);
 
 			List<String> queryAttributes = query.getAttr();
-			if ((queryAttributes != null) && (queryAttributes.size() == 0)) {
+			if ((queryAttributes != null) && (queryAttributes.get(0).equals("*"))) {
 				MBeanAttributeInfo[] attrs = info.getAttributes();
 				for (MBeanAttributeInfo attrInfo : attrs) {
 					query.addAttr(attrInfo.getName());
